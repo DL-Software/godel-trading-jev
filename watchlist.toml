@@ -1,0 +1,22 @@
+# Symbols to follow, with the company name Jev will see.
+#
+# Give the name, not just the ticker. In our tests a relevance question that named only the
+# ticker came back hedged; naming the company made it decisive. Jev reads text, not exchanges.
+
+[companies]
+AAPL = "Apple"
+NVDA = "NVIDIA"
+MSFT = "Microsoft"
+GOOG = "Alphabet (Google)"
+AMZN = "Amazon"
+META = "Meta Platforms"
+TSLA = "Tesla"
+AMD = "Advanced Micro Devices"
+JPM = "JPMorgan Chase"
+XOM = "ExxonMobil"
+BA = "Boeing"
+PFE = "Pfizer"
+DKNG = "DraftKings"
+WBD = "Warner Bros. Discovery"
+FUBO = "fuboTV"
+COIN = "Coinbase"

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.env
+signals.jsonl
+ab_items.json
+ab_pairs.csv
+ab_summary.txt

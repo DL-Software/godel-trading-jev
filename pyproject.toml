@@ -1,0 +1,26 @@
+[project]
+name = "godel-jev-trader"
+version = "0.1.0"
+description = "Godel's live news API + TypeSafe's Jev = typed, probability-scored trading signals from every headline."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27"]
+
+[project.urls]
+"Godel API docs" = "https://developers.godelterminal.com"
+"Get a Godel API key" = "https://dev.godelterminal.com/api/keys"
+"Jev docs" = "https://docs.typesafe.ai"
+
+[project.scripts]
+godel-jev-trader = "godel_jev_trader.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["godel_jev_trader*"]

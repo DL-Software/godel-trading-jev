@@ -9,6 +9,7 @@
 "NVDA:US" = "NVIDIA"
 "MSFT:US" = "Microsoft"
 "GOOG:US" = "Alphabet (Google)"
+"GOOGL:US" = "Alphabet (Google)"   # the API links Alphabet under either class
 "AMZN:US" = "Amazon"
 "META:US" = "Meta Platforms"
 "TSLA:US" = "Tesla"

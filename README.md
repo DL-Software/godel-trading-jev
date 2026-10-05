@@ -73,7 +73,7 @@ You need two keys:
 2. A TypeSafe key from [console.typesafe.ai](https://console.typesafe.ai)
 
 ```bash
-git clone https://github.com/DL-Software/godel-jev-trader && cd godel-jev-trader
+git clone https://github.com/DL-Software/godel-trading-jev && cd godel-trading-jev
 python -m venv .venv && . .venv/bin/activate && pip install -e .
 
 export GODEL_API_KEY=...      # or copy .env.example to .env and source it

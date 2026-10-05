@@ -9,3 +9,4 @@ signals.jsonl
 ab_items.json
 ab_pairs.csv
 ab_summary.txt
+.claude/settings.local.json

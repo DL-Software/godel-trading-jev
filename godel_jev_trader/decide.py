@@ -31,7 +31,7 @@ class Thresholds:
 
 @dataclass(frozen=True)
 class Decision:
-    key: str                    # instrument id when the API gives one, else the symbol
+    key: str                    # TICKER:VENUE listing when the API gives one, else the ticker
     symbol: str
     name: str
     action: Action
@@ -52,9 +52,9 @@ class Decision:
 def decide(company: LinkedCompany, answers: dict, t: Thresholds = Thresholds()) -> Decision:
     event = answers["event_type"]
     new_info = answers["new_information"]["noul"]
-    relevance = company.relevance if company.relevance is not None else answers[key(company.symbol, "subject")]["noul"]
-    material = answers[key(company.symbol, "material")]["noul"]
-    tone_a = answers[key(company.symbol, "tone")]
+    relevance = company.relevance if company.relevance is not None else answers[key(company.key, "subject")]["noul"]
+    material = answers[key(company.key, "material")]["noul"]
+    tone_a = answers[key(company.key, "tone")]
     tone, tone_conf = tone_a["score"], tone_a["confidence"]
     price = company.price
 
@@ -78,7 +78,7 @@ def decide(company: LinkedCompany, answers: dict, t: Thresholds = Thresholds()) 
         return out("WATCH", f"recap or opinion (new {new_info:.2f})")
     if material < t.material:
         return out("WATCH", f"not material (material {material:.2f})")
-    if price and abs(price.change_pct) >= t.priced_in_pct:
+    if price and price.change_pct is not None and abs(price.change_pct) >= t.priced_in_pct:
         return out("WATCH", f"already moved {price.change_pct:+.1f}% today")
     if tone_conf < t.tone_confidence:
         return out("WATCH", f"tone unclear (confidence {tone_conf:.2f})")

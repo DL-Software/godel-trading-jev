@@ -1,22 +1,23 @@
-# Symbols to follow, with the company name Jev will see.
+# Listings to follow, as TICKER:VENUE (`US` is the US composite), with the company's name.
 #
-# Give the name, not just the ticker. In our tests a relevance question that named only the
-# ticker came back hedged; naming the company made it decisive. Jev reads text, not exchanges.
+# The stream is filtered server-side on these. Use each company's primary listing: the API links a
+# company to an item by its primary listing, and that is what the watchlist is matched against.
+# Items that link an instrument carry its name, which Jev sees; the name here is the fallback.
 
 [companies]
-AAPL = "Apple"
-NVDA = "NVIDIA"
-MSFT = "Microsoft"
-GOOG = "Alphabet (Google)"
-AMZN = "Amazon"
-META = "Meta Platforms"
-TSLA = "Tesla"
-AMD = "Advanced Micro Devices"
-JPM = "JPMorgan Chase"
-XOM = "ExxonMobil"
-BA = "Boeing"
-PFE = "Pfizer"
-DKNG = "DraftKings"
-WBD = "Warner Bros. Discovery"
-FUBO = "fuboTV"
-COIN = "Coinbase"
+"AAPL:US" = "Apple"
+"NVDA:US" = "NVIDIA"
+"MSFT:US" = "Microsoft"
+"GOOG:US" = "Alphabet (Google)"
+"AMZN:US" = "Amazon"
+"META:US" = "Meta Platforms"
+"TSLA:US" = "Tesla"
+"AMD:US" = "Advanced Micro Devices"
+"JPM:US" = "JPMorgan Chase"
+"XOM:US" = "ExxonMobil"
+"BA:US" = "Boeing"
+"PFE:US" = "Pfizer"
+"DKNG:US" = "DraftKings"
+"WBD:US" = "Warner Bros. Discovery"
+"FUBO:US" = "fuboTV"
+"COIN:US" = "Coinbase"

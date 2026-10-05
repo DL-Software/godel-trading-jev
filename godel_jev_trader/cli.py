@@ -19,33 +19,37 @@ COLOR = {"LONG": "\033[32m", "SHORT": "\033[31m", "WATCH": "\033[33m", "IGNORE":
 
 
 def load_watchlist(path: Path) -> dict[str, str]:
+    """`TICKER:VENUE` listing -> company name."""
     with path.open("rb") as f:
         data = tomllib.load(f)
-    return {sym.upper(): name for sym, name in data["companies"].items()}
+    watchlist = {sym.upper(): name for sym, name in data["companies"].items()}
+    if bare := [s for s in watchlist if ":" not in s]:
+        raise SystemExit(f"{path}: write listings as TICKER:VENUE, e.g. \"AAPL:US\" (not {', '.join(bare[:3])})")
+    return watchlist
 
 
 def companies_for(item: NewsItem, watchlist: dict[str, str], everything: bool) -> list[LinkedCompany]:
     """The companies to score on this item.
 
-    Enriched API: use its linked companies (filtered to the watchlist unless --all).
-    Plain API: build a company per symbol from the watchlist name; Jev will be asked who it's about.
+    Linked instruments: use them (filtered to the watchlist unless --all).
+    None linked: build a company per tagged ticker; Jev will be asked who the item is about.
     """
     if item.companies:
-        return [c for c in item.companies if everything or c.symbol in watchlist]
+        return [c for c in item.companies if everything or c.listing in watchlist]
     if everything:
-        return [LinkedCompany(s, watchlist.get(s, s)) for s in item.symbols]
-    return [LinkedCompany(s, watchlist[s]) for s in item.symbols if s in watchlist]
+        return [LinkedCompany(t, t) for t in item.tickers]
+    return [LinkedCompany(s.split(":")[0], watchlist[s], listing=s) for s in item.symbols if s in watchlist]
 
 
 def process(item: NewsItem, companies: list[LinkedCompany], jev: Jev, book: PaperBook, t: Thresholds, color: bool) -> None:
     resp = jev.ask(build_state(item, companies), build_questions(companies))
     dim, reset = (DIM, RESET) if color else ("", "")
-    print(f"{dim}{item.created_at[11:19]}{reset}  {item.title[:100]}")
+    print(f"{dim}{item.published_at[11:19]}{reset}  {item.title[:100]}")
     for c in companies:
         d = decide(c, resp.answers, t)
         note = book.record(item, d, resp.latency_ms, resp.model)
         tag = f"{COLOR[d.action]}{BOLD}{d.action:<6}{RESET}" if color else f"{d.action:<6}"
-        px = f"{d.price:9.2f} {d.change_pct:+5.1f}%" if d.price is not None else f"{'':16}"
+        px = f"{d.price:9.2f} {f'{d.change_pct:+5.1f}%' if d.change_pct is not None else '':6} {c.price.type.lower():<8}" if c.price else f"{'':25}"
         conf = f"conf {d.link_confidence:.2f}" if d.link_confidence is not None else "conf  -  "
         print(
             f"          {c.symbol:<7} {c.name[:20]:<20} {tag} {d.event:<16} "
@@ -54,21 +58,17 @@ def process(item: NewsItem, companies: list[LinkedCompany], jev: Jev, book: Pape
         )
 
 
-def finish(book: PaperBook, api: GodelNews) -> None:
-    try:
-        book.mark(api.prices(p.symbol for p in book.positions.values()))
-    except Exception as e:  # marking is best-effort
-        print(f"(could not mark to market: {e})")
+def finish(book: PaperBook) -> None:
     print("\n" + book.summary())
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="godel-jev-trader", description="Godel news -> Jev -> paper trading signals")
     p.add_argument("command", choices=["replay", "run", "mock"],
-                   help="replay recent items once, run on the live stream, or serve the enriched mock API")
+                   help="replay recent items once, run on the live stream, or serve the mock API")
     p.add_argument("--watchlist", type=Path, default=Path("watchlist.toml"))
     p.add_argument("--limit", type=int, default=50, help="replay: how many recent items to fetch (max 200)")
-    p.add_argument("--all", action="store_true", help="score every linked company, not only the watchlist")
+    p.add_argument("--all", action="store_true", help="score every linked instrument, not only the watchlist")
     p.add_argument("--book", type=Path, default=Path("signals.jsonl"), help="where decisions are appended")
     p.add_argument("--from-file", type=Path, help="replay: read items from a saved JSON array instead of the API")
     p.add_argument("--port", type=int, default=8090, help="mock: port to listen on")
@@ -93,21 +93,23 @@ def main(argv: list[str] | None = None) -> int:
             items = [NewsItem.from_json(d) for d in json.loads(a.from_file.read_text())][: a.limit]
         else:
             items = api.recent(symbols, limit=min(a.limit, 200))
-        items = [i for i in items if companies_for(i, watchlist, a.all)]
-        print(f"{len(items)} items to score\n")
-        for item in reversed(items):  # oldest first, like the stream
-            process(item, companies_for(item, watchlist, a.all), jev, book, t, color)
-        finish(book, api)
+        items.reverse()  # oldest first, like the stream
+        print(f"{sum(1 for i in items if companies_for(i, watchlist, a.all))} items to score\n")
+        for item in items:
+            book.observe(item)
+            if cs := companies_for(item, watchlist, a.all):
+                process(item, cs, jev, book, t, color)
+        finish(book)
         return 0
 
     print(f"following {'all symbols' if a.all else ', '.join(symbols)} ... (Ctrl-C to stop)\n")
     try:
         for item in api.stream(symbols):
-            cs = companies_for(item, watchlist, a.all)
-            if cs:
+            book.observe(item)
+            if cs := companies_for(item, watchlist, a.all):
                 process(item, cs, jev, book, t, color)
     except KeyboardInterrupt:
-        finish(book, api)
+        finish(book)
     return 0
 
 

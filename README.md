@@ -5,18 +5,18 @@
 [Godel](https://godelterminal.com)'s live news firehose, wired to [TypeSafe's Jev](https://typesafe.ai). Each item comes off the stream tagged with its tickers, Jev answers a handful of typed questions about it with calibrated probabilities, and a few lines of plain Python turn those numbers into a paper trading signal. No prompt engineering. No JSON to parse out of prose. No hallucinated fields.
 
 ```
-Godel /v1/news-item-stream  ──►  linked companies + price  ──►  typed questions  ──►  Jev  ──►  probabilities  ──►  decide()  ──►  LONG / SHORT / WATCH / IGNORE  ──►  paper book, marked to market
+Godel /v1-beta/news-item-stream  ──►  linked instruments + price  ──►  typed questions  ──►  Jev  ──►  probabilities  ──►  decide()  ──►  LONG / SHORT / WATCH / IGNORE  ──►  paper book, marked to market
 ```
 
 Godel says **who** the story is about and **at what price**. Jev says **what it means**. Your code decides.
 
 Paper signals only. There is no broker in this repo, and it is not investment advice.
 
-> **This branch previews the enriched news API.** Each item carries `companies`: the linked companies with a stable id, name, link confidence, relevance, and price at publication. Until that ships, `godel-jev-trader mock` serves a local preview that proxies the real feed and fills those fields in. See [Preview: enriched company links](#preview-enriched-company-links).
+> Each item arrives with `instruments`: the companies the API linked to it, with name, `TICKER:VENUE` listing, and price. The API does not yet say how relevant each company is to the item; `godel-jev-trader mock` previews that by proxying the real feed and adding it. See [Preview: relevance and link confidence](#preview-relevance-and-link-confidence).
 
 ## See it run
 
-Real output, excerpted from `godel-jev-trader replay --limit 200 --all` against the live API on 21 Sep 2026. Timings are the Jev round trip for the whole item.
+Real output, excerpted from `godel-jev-trader replay --limit 200 --all` against the live API on 21 Sep 2026, before the API linked instruments, so Jev was asked who each item is about. Timings are the Jev round trip for the whole item.
 
 ```
 63 items to score
@@ -43,7 +43,7 @@ paper book:
 
 Every line is one company on one item. The numbers are Jev's answers; the verdict is ours. Of 164 company-item pairs in that replay, 143 were ignored, 20 were flagged to watch, and one cleared every gate. The same Tesla story arrived in three languages and got the same answer each time.
 
-With the enriched preview (real feed through `godel-jev-trader mock`, same day), each line also carries the API's relevance and link confidence and the price at publication, and the book marks to market:
+With the mock's relevance and link confidence (real feed through `godel-jev-trader mock`, same day), each line also carries those and the price at publication, and the book marks to market:
 
 ```
 17:37:59  NJ Attorney General Davenport Announces Settlement With Paramount Skydance; Deal Settlement Includes
@@ -56,20 +56,20 @@ paper book:
   IREN     IREN                   long     31.3 units  @    127.31  last    127.31  P&L     +0.00  (1 signal: analyst, tone 3.7/4)
 ```
 
-No `subject` question was asked on those items: the API's relevance answered it, so the Jev call was two questions per company instead of three. Prices in the preview are synthetic, see below.
+No `subject` question was asked on those items: the mock's relevance answered it, so the Jev call was two questions per company instead of three. The mock synthesized names and prices on that day; the API now supplies both.
 
 ## Why this shape works
 
 - **News is text, trading is numbers.** A chat model bridges that gap with prose you then have to parse and trust. Jev's [System One](https://docs.typesafe.ai/concepts/system-one.md) primitives skip the prose: a `choice` returns a distribution over your labels, a `score` returns a position on your rubric, a `noul` returns a single probability that a statement is true.
 - **One call per item, however many questions.** Jev evaluates every question in a request in parallel and in isolation, so scoring five companies on one article costs about the same as scoring one.
-- **Tickers arrive attached.** Godel's items carry the symbols they are about, so the stream can be filtered server-side to your watchlist and a name can be put in front of Jev for each one.
+- **Companies arrive attached.** Godel links each item to the instruments it is about, with name, listing, and price, so the stream can be filtered server-side to your watchlist and a name can be put in front of Jev for each one.
 - **The model judges the text. The code judges the trade.** Thresholds, sizing, and portfolio state live in [`decide.py`](godel_jev_trader/decide.py) where you can read, test, and change them.
 
 ## Quickstart
 
 You need two keys:
 
-1. A Godel API key from [dev.godelterminal.com/api/keys](https://dev.godelterminal.com/api/keys)
+1. A Godel API key (`godel_sk_...`) from [platform.godelterminal.com/api/keys](https://platform.godelterminal.com/api/keys). News comes from the feeds your Godel subscription includes.
 2. A TypeSafe key from [console.typesafe.ai](https://console.typesafe.ai)
 
 ```bash
@@ -83,7 +83,7 @@ godel-jev-trader replay --limit 50   # score the last 50 items on your watchlist
 godel-jev-trader run                 # follow the live stream
 ```
 
-Edit [`watchlist.toml`](watchlist.toml) to choose your symbols. Pass `--all` to score every tagged company on the feed, not only your list. Decisions are appended to `signals.jsonl`, and the paper book is printed, marked to market where prices are available, when a run ends.
+Edit [`watchlist.toml`](watchlist.toml) to choose your listings, written `TICKER:VENUE` (`AAPL:US`). Pass `--all` to score every linked company on the feed, not only your list. Decisions are appended to `signals.jsonl`, and the paper book is printed, marked to the latest price seen on the feed, when a run ends. The API allows one stream connection per account.
 
 ## The questions
 
@@ -93,9 +93,9 @@ All are sent in one request. Two are about the item, three are repeated per comp
 |---|---|---|
 | `event_type` | choice | Which of nine event kinds this is: earnings, M&A, regulatory, product or deal, management, capital, analyst, macro, or noise |
 | `new_information` | noul | Is this a new development rather than a recap, opinion, listing, or promo? |
-| `{sym}_subject` | noul | Is the company a primary subject, not an incidental mention? Only asked when the API did not send `relevance`. |
-| `{sym}_material` | noul | Would a trader holding it consider this material to the share price? |
-| `{sym}_tone` | score | Implication for shareholders, on five levels from clearly negative to clearly positive |
+| `{listing}_subject` | noul | Is the company a primary subject, not an incidental mention? Only asked when the item has no `relevance` (the API does not send one yet; the mock does). |
+| `{listing}_material` | noul | Would a trader holding it consider this material to the share price? |
+| `{listing}_tone` | score | Implication for shareholders, on five levels from clearly negative to clearly positive |
 
 They are deliberately atomic. Jev is calibrated for single judgments a reader could make from the text. Anything needing arithmetic, price history, or "what's already priced in" is left to code, which is where Jev's own docs tell you to put it.
 
@@ -105,8 +105,8 @@ The whole strategy is [`decide()`](godel_jev_trader/decide.py). Defaults:
 
 ```python
 class Thresholds:
-    link_confidence = 0.70   # API: below this the symbol->company link itself is doubtful: IGNORE
-    relevance = 0.80         # API relevance (or Jev's subject answer): below this IGNORE
+    link_confidence = 0.70   # mock: below this the link to the company itself is doubtful: IGNORE
+    relevance = 0.80         # mock relevance (else Jev's subject answer): below this IGNORE
     new_information = 0.60   # below this: WATCH, it's a recap or opinion
     material = 0.70          # below this: WATCH
     priced_in_pct = 5.0      # |move since previous close| at or above this: WATCH, it already happened
@@ -117,58 +117,56 @@ class Thresholds:
 conviction = relevance * material * new_information * tone_confidence
 ```
 
-Confident `noise` is ignored outright. Position size in the paper book scales with conviction, and the book is keyed by instrument id, so one company under two tickers or one story in three languages is one position. A repeat signal on the same instrument inside 30 minutes is logged but not added. Change any of it and the tests in [`tests/`](tests/) still tell you what the rules do.
+Confident `noise` is ignored outright. Position size in the paper book scales with conviction, and the book is keyed by listing, which the API links once per company, so one company under two tickers or one story in three languages is one position. A repeat signal on the same instrument inside 30 minutes is logged but not added. Change any of it and the tests in [`tests/`](tests/) still tell you what the rules do.
 
 ## What we learned building it
 
-- **Name the company.** With only a ticker in the question, relevance answers came back hedged around 0.6. With the company name next to it, they became decisive. Jev reads text, not exchange listings, so the watchlist carries names.
+- **Name the company.** With only a ticker in the question, relevance answers came back hedged around 0.6. With the company name next to it, they became decisive. Jev reads text, not exchange listings, so every question carries the API's company name.
 - **Confidence is a routing axis, not decoration.** Low `tone_confidence` on a material item is a real state: something happened, the direction is unclear. That is a WATCH, not a coin flip.
 - **Relevance filtering is the quiet win.** Most tagged items are incidental mentions, auto-generated "X trades 2% higher" notes, or recaps. The `subject`, `noise`, and `new_information` gates removed 87% of company-item pairs in our replay before any tone was considered. Whatever your strategy does next, it does it on the items that are actually news.
 - **Multilingual for free.** The feed carries Spanish, Portuguese, French, and Chinese items alongside English. Jev's answers on the Portuguese and English versions of the same Tesla story agreed to within a few hundredths. TypeSafe notes English is where accuracy is best, so weight non-English decisions accordingly.
 - **It is cheap.** Jev bills input tokens only, at $0.042 per million. A typical wire item with five companies is under 2,000 tokens, so scoring 10,000 items a day costs well under a dollar.
 
-## Preview: enriched company links
+## Preview: relevance and link confidence
 
-The next version of the news API resolves each tagged symbol to a company and attaches it to the item:
+The news API links each item to instruments, one per company, at the company's primary listing:
 
 ```json
-"companies": [{
-  "id": "inst_2f1c9a7b3e", "symbol": "TSLA", "name": "Tesla",
-  "confidence": 0.98, "relevance": 0.91,
-  "price": {"last": 412.10, "changePct": 1.2, "asOf": "2026-09-21T14:05:50Z"}
+"instruments": [{
+  "type": "EQUITY", "currency": "USD", "name": "NVIDIA Corp", "ticker": "NVDA",
+  "venueShortCode": "US", "symbol": "NVDA:US",
+  "price": {"type": "DELAYED", "value": 182.41, "change": 1.27, "changePercent": 0.7, "asOf": "2026-09-19T15:23:10.812Z"}
 }]
 ```
 
-`confidence` is the probability the link to that instrument is correct. `relevance` is the probability the company is what the item is about. Both are in the same 0 to 1 sense as Jev's answers, so they multiply straight into conviction. The `price` is the print at publication, with the move since the previous close.
+That gives the tool a name for every company, so Jev is decisive rather than hedging on bare tickers, and `--all` works on every company the API knows. It gives the price for the priced-in gate and the paper book, which is keyed by listing and marked to the latest price seen on the feed. And it makes the `symbols` filter possible, which follows the instrument through ticker changes.
 
-What that changes here:
+Jev sees the price as a word (`price_trend_today: "up_strong"`), never as a number. TypeSafe's own guidance is that Jev is not a calculator, so the arithmetic stays in [`decide.py`](godel_jev_trader/decide.py). A `CLOSE` price has no move since the previous close, so for it the trend is left out and the priced-in gate is skipped.
 
-- **Fewer, better questions.** The `subject` question is dropped when relevance arrives. On the feed, most tagged pairs fail the relevance gate, and now they fail it before a token is spent.
-- **Names for every symbol.** Jev hedges on bare tickers and is decisive on names. The watchlist becomes a filter instead of a lookup table, and `--all` works on every company the API knows.
-- **Two gates Jev cannot provide.** A low `confidence` link is dropped as a tagging error rather than judged. A stock that already moved 5% before the item landed is a WATCH, because "already priced in" is a price fact, not a text fact.
-- **A real paper book.** Positions are keyed by instrument id, sized at the publication price, and marked to market at the end of a run against `GET /v1/prices`.
+What the API does not send yet is how much each company matters to the item. Two fields would let the tool drop a question and add a gate:
 
-Jev sees the price as a word (`price_trend_today: "up_strong"`), never as a number. TypeSafe's own guidance is that Jev is not a calculator, so the arithmetic stays in [`decide.py`](godel_jev_trader/decide.py).
+- **`relevance`**, the probability the company is what the item is about. When it arrives, the `subject` question is not asked. On the feed most linked pairs fail the relevance gate, and now they fail it before a token is spent.
+- **`confidence`**, the probability the link itself is right. A low-confidence link is dropped as a tagging error rather than judged.
+
+Both are in the same 0 to 1 sense as Jev's answers, so they multiply straight into conviction. The tool reads them from each instrument when present.
 
 ### Running against the mock
 
 ```bash
-godel-jev-trader mock --port 8090          # in one terminal: proxies api.godelterminal.com, adds `companies`
+godel-jev-trader mock --port 8090          # in one terminal: proxies api.godelterminal.com, adds relevance and confidence
 export GODEL_API_URL=http://127.0.0.1:8090 # in another
 godel-jev-trader replay --limit 200 --all
 godel-jev-trader run --all
 ```
 
-The mock forwards your real Godel key upstream, so the news is live. What it fills in is not:
+The mock forwards your real Godel key upstream, so the news, names, and prices are live. What it adds is not:
 
 | Field | In the mock | In the API |
 |---|---|---|
-| `name` | Small built-in table, else the company name parsed off the front of auto-generated headlines | Instrument master |
-| `relevance` | Mention heuristic: name in the title beats name in the lead beats name anywhere | Entity relevance model |
-| `confidence` | High when the name is known and mentioned, low for unknown symbols on multi-ticker items | Link resolution confidence |
-| `price` | Synthetic: deterministic base per symbol, seeded random walk in five-minute buckets | Market data |
+| `relevance` | Mention heuristic: name in the title beats ticker in the title beats name in the lead beats name anywhere | Entity relevance model |
+| `confidence` | High when the company is mentioned, lower when it is not | Link resolution confidence |
 
-So the mock's P&L is a demonstration of the plumbing, not of anything about markets. Its `IGNORE` lines are honest about their reason: `uncertain link` means the mock did not know the company, which the real API will.
+So the mock's `not about X` lines mean the mock found no mention of the company, not that a model judged it incidental.
 
 ## Extend it
 
@@ -178,8 +176,8 @@ So the mock's P&L is a demonstration of the plumbing, not of anything about mark
 
 ## Links
 
-- Godel API docs: [developers.godelterminal.com](https://developers.godelterminal.com)
-- Get a Godel API key: [dev.godelterminal.com/api/keys](https://dev.godelterminal.com/api/keys)
+- Godel API docs: [platform.godelterminal.com/docs](https://platform.godelterminal.com/docs)
+- Get a Godel API key: [platform.godelterminal.com/api/keys](https://platform.godelterminal.com/api/keys)
 - Jev docs: [docs.typesafe.ai](https://docs.typesafe.ai)
 
 ## Disclaimer

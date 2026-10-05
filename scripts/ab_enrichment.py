@@ -2,7 +2,7 @@
 
 For every saved item that carries `instruments`, Jev is asked the same questions twice:
 
-  plain     — companies as today's production items describe them: the bare `symbols`, name = ticker
+  plain     — companies as the bare `tickers` describe them, name = ticker
   enriched  — companies as `instruments` describe them: real name, ticker, price trend
 
 Both variants ask the `subject` question (the API sends no relevance), so subject, material, tone
@@ -48,7 +48,7 @@ def load_env(path: Path) -> None:
 
 
 def plain_companies(item: NewsItem) -> list[LinkedCompany]:
-    return [LinkedCompany(s, s) for s in item.symbols[:MAX_COMPANIES]]
+    return [LinkedCompany(t, t) for t in item.tickers[:MAX_COMPANIES]]
 
 
 def enriched_companies(item: NewsItem) -> list[LinkedCompany]:
@@ -64,7 +64,7 @@ def run(items_path: Path) -> None:
     load_env(Path(__file__).resolve().parents[1] / ".env")
     jev = Jev()
     items = [NewsItem.from_json(d) for d in json.loads(items_path.read_text())]
-    items = [i for i in items if i.companies and i.symbols]
+    items = [i for i in items if i.companies and i.tickers]
     print(f"{len(items)} items with instruments", file=sys.stderr)
 
     rows: list[dict] = []
@@ -82,11 +82,11 @@ def run(items_path: Path) -> None:
             d_p = decide(c, a_p)
             d_e = decide(e, a_e) if e else None
             rows.append({
-                "item_id": item.id, "created_at": item.created_at, "title": item.title[:140].replace("\n", " "),
+                "item_id": item.id, "published_at": item.published_at, "title": item.title[:140].replace("\n", " "),
                 "symbol": c.symbol, "name_enriched": e.name if e else "",
                 "in_enriched": int(e is not None),
-                "subject_plain": round(a_p[key(c.symbol, "subject")]["noul"], 3),
-                "subject_enriched": round(a_e[key(e.symbol, "subject")]["noul"], 3) if e else "",
+                "subject_plain": round(a_p[key(c.key, "subject")]["noul"], 3),
+                "subject_enriched": round(a_e[key(e.key, "subject")]["noul"], 3) if e else "",
                 "material_plain": round(d_p.material, 3), "material_enriched": round(d_e.material, 3) if d_e else "",
                 "tone_plain": d_p.tone, "tone_enriched": d_e.tone if d_e else "",
                 "event_plain": d_p.event, "event_enriched": d_e.event if d_e else "",
@@ -94,14 +94,14 @@ def run(items_path: Path) -> None:
                 "reason_plain": d_p.reason, "reason_enriched": d_e.reason if d_e else "",
                 "truth_subject": "",
             })
-        # companies the enrichment names that no symbol matched (name-only listings, e.g. HK codes)
+        # companies the enrichment names that no ticker matched (name-only listings, e.g. HK codes)
         for e in enriched:
             if e.symbol not in {c.symbol for c in plain}:
                 d_e = decide(e, a_e)
                 rows.append({
-                    "item_id": item.id, "created_at": item.created_at, "title": item.title[:140].replace("\n", " "),
+                    "item_id": item.id, "published_at": item.published_at, "title": item.title[:140].replace("\n", " "),
                     "symbol": e.symbol, "name_enriched": e.name, "in_enriched": 1,
-                    "subject_plain": "", "subject_enriched": round(a_e[key(e.symbol, "subject")]["noul"], 3),
+                    "subject_plain": "", "subject_enriched": round(a_e[key(e.key, "subject")]["noul"], 3),
                     "material_plain": "", "material_enriched": round(d_e.material, 3),
                     "tone_plain": "", "tone_enriched": d_e.tone, "event_plain": "", "event_enriched": d_e.event,
                     "action_plain": "", "action_enriched": d_e.action, "reason_plain": "", "reason_enriched": d_e.reason,
@@ -134,7 +134,7 @@ def run(items_path: Path) -> None:
 def score(labels_path: Path) -> None:
     """Two views. Per variant, on every labelled row that variant produced: how well does each
     pipeline identify the story's subjects among the companies *it* names (the product question —
-    `symbols` and `instruments` name different companies). Then on the rows both variants share:
+    `tickers` and `instruments` name different companies). Then on the rows both variants share:
     the effect of the name and price alone, same company, same text."""
     rows = [r for r in csv.DictReader(labels_path.open()) if r["truth_subject"] in ("0", "1")]
     if not rows:

@@ -1,8 +1,9 @@
 """A paper book: every decision is appended to a JSONL file, positions are tracked in memory.
 
-Positions are keyed by instrument id, so the same company under two tickers or the same story
-in three languages is one position. A repeat signal on the same instrument inside the cooldown
-window is logged but not added. With prices, the book marks to market.
+Positions are keyed by listing (`TICKER:VENUE`), and the API links each company on an item by its
+primary listing, so the same company under two tickers or the same story in three languages is one
+position. A repeat signal on the same instrument inside the cooldown window is logged but not
+added. Every later item that links the instrument carries its price, and the book marks to that.
 
 There is deliberately no broker here. Swap `PaperBook` for something that talks to yours.
 """
@@ -15,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .decide import Decision
-from .godel import NewsItem, Price
+from .godel import NewsItem
 
 
 def _ts(iso: str) -> float:
@@ -57,7 +58,7 @@ class PaperBook:
         note = None
         pos = self.positions.get(decision.key)
         if decision.action in ("LONG", "SHORT"):
-            at = _ts(item.created_at)
+            at = _ts(item.published_at)
             if pos and at - pos.last_signal_at < self.cooldown_s:
                 note = "duplicate: same instrument within cooldown"
             elif decision.price is None:
@@ -74,17 +75,18 @@ class PaperBook:
         if pos and decision.price is not None:
             pos.last_price = decision.price
 
-        row = {"at": item.created_at, "item_id": item.id, "title": item.title, **asdict(decision),
+        row = {"at": item.published_at, "item_id": item.id, "title": item.title, **asdict(decision),
                "applied": decision.action in ("LONG", "SHORT") and note is None,
                "note": note, "jev_model": model, "jev_latency_ms": round(latency_ms)}
         with self.path.open("a") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         return note
 
-    def mark(self, prices: dict[str, Price]) -> None:
-        for p in self.positions.values():
-            if p.symbol in prices:
-                p.last_price = prices[p.symbol].last
+    def observe(self, item: NewsItem) -> None:
+        """Mark positions to the prices on an item, whether or not it is scored."""
+        for c in item.companies:
+            if c.price and (pos := self.positions.get(c.key)):
+                pos.last_price = c.price.last
 
     def summary(self) -> str:
         if not self.positions:
@@ -94,7 +96,7 @@ class PaperBook:
         marked = False
         for p in sorted(self.positions.values(), key=lambda p: -abs(p.units)):
             side = "long" if p.units > 0 else "short"
-            line = f"  {p.symbol:<8} {p.name[:22]:<22} {side:<5} {abs(p.units):7.1f} units"
+            line = f"  {p.key:<10} {p.name[:22]:<22} {side:<5} {abs(p.units):7.1f} units"
             if p.entry is not None:
                 line += f"  @ {p.entry:9.2f}"
             if p.pnl is not None:
